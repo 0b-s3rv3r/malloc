@@ -1,4 +1,4 @@
 # malloc
-My a dead simple implementation of malloc/free made for learning purposes.
+My dead simple implementation of malloc/free made for learning purposes.
 Do not combine with std malloc!
 
