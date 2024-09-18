@@ -1,74 +1,91 @@
 #include "malloc.h"
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <string.h>
 #include <unistd.h>
-#include <sys/mman.h>
 
-typedef struct Chunk {
+typedef struct Block {
 	size_t size;
 	bool free;
-} Chunk;
+} Block;
 
-size_t avail = 4096;
-void *first = NULL;
+#define BLOCK_SIZE sizeof(Block)
+#define SIZE(b) ((Block*)b)->size
+#define FREE(b) ((Block*)b)->free
+#define NEXT(b) (char*)b + SIZE(b) + BLOCK_SIZE 
+#define HEADER(b) ((Block*)b - 1)
+#define ALLOC_ADDR(b) ((char*)b + BLOCK_SIZE)
 
-void* next_chunk(void* current) {
-	return current + sizeof(Chunk) + ((Chunk*)current)->size;
-}
+void* first = NULL;
 
-void* first_allocable_address(void* chunk_header) {
-	return chunk_header + sizeof(Chunk);
-}
-
-size_t chunk_size(void* chunk) {
-	return ((Chunk*)chunk)->size;
-}
-
-bool is_chunk_free(void* chunk) {
-	return ((Chunk*)chunk)->free;
-}
-
+// TODO: Fix memory fragmentation
 void* malloc(size_t size) {
-	if (size > avail) {
-		return NULL;
+	if(first == NULL) {
+		first = sbrk(BLOCK_SIZE);
+		if (first == (void*)-1) return NULL;
+		SIZE(first) = 0;
+		FREE(first) = true;
 	}
-
-	Chunk *chunk = first;
-
-	while (size > chunk_size(chunk)) {
-		if(chunk == NULL) {
-			chunk = mmap(NULL, size + sizeof(Chunk), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-			((Chunk*)chunk)->size = size;
-			((Chunk*)chunk)->free = false;
-			avail -= size;
-			return first_allocable_address(chunk);
+	if(size == 0) return NULL;
+	void* block = first;
+	while (SIZE(block) != 0) {
+		if(SIZE(block) >= size && FREE(block)) {
+			FREE(block) = false;
+			return ALLOC_ADDR(block);
 		}
-		if(((Chunk*)chunk)->free) {
-			((Chunk*)chunk)->free = false;	
-			return first_allocable_address(chunk);
-		}
-		chunk = next_chunk(chunk);
+		block = NEXT(block);
 	}
-
-	return NULL;
+	SIZE(block) = size;
+	FREE(block) = false;
+	void* allocable_addr = ALLOC_ADDR(block);
+	allocable_addr = sbrk(size + BLOCK_SIZE);
+	if (block == (void*)-1) return NULL;
+	void* next = NEXT(block);
+	SIZE(next) = 0;
+	FREE(next) = true;
+	return ALLOC_ADDR(block);
 }
 
-void free(void *ptr) {
-	if(ptr == NULL) {
-		return;
-	}
-
-	if(((Chunk*)(ptr - sizeof(Chunk)))->free == false) {
-		munmap(ptr, ((Chunk*)(ptr - sizeof(Chunk)))->size);
-		((Chunk*)(ptr - sizeof(Chunk)))->size = true;
-	} 
+void free(void* ptr) {
+	FREE(HEADER(ptr)) = true;
+	ptr = NULL;
 }
+
 
 void test(void) {
-	int *some = malloc(sizeof(int));
-	*some = 8;
-	printf("%p\n", some);
-	printf("%d", *some);
-	free(some);
+	int *n = malloc(sizeof(long long));
+	*n = 8;
+	free(n);
+
+	int *n2 = malloc(sizeof(int));
+	*n2 = 10;
+
+	int *n3 = malloc(sizeof(int));
+
+	char* str = malloc(sizeof(char) * 10);
+	strcpy(str, "something");
+	free(str);
+
+	char* str2 = malloc(sizeof(char) * 5);
+	strcpy(str2, "some");
+
+	// std::printf after all allocations to not damage already existing memory
+	printf("n2: %d\n", *n2);
+	printf("n2 addr: %p\n", n2);
+	printf("n2 block size: %d\n", (int)SIZE(HEADER(n2)));
+	printf("n3 addr: %p\n", n3);
+
+	printf("str2: %s\n", str2);
+	printf("str2 addr: %p\n", str2);
+	printf("str2 block size: %d\n", (int)SIZE(HEADER(str2)));
+
+	assert((int)SIZE(HEADER(n2)) == 8);
+	assert(n2 != n3);
+	assert((int)SIZE(HEADER(str2)) == 10);
+
+	free(n2);
+	free(n3);
+	free(str2);
 }
