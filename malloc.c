@@ -18,10 +18,9 @@ typedef struct Block {
 #define HEADER(b) ((Block*)b - 1)
 #define ALLOC_ADDR(b) ((char*)b + BLOCK_SIZE)
 
-void* first = NULL;
-
 // TODO: Fix memory fragmentation
 void* malloc(size_t size) {
+	static void* first = NULL;
 	if(first == NULL) {
 		first = sbrk(BLOCK_SIZE);
 		if (first == (void*)-1) return NULL;
